@@ -27,6 +27,14 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF", "PT", "TCH"]
 
+[tool.ruff.lint.flake8-type-checking]
+# Pydantic resolves field annotations at runtime, so their imports must stay real.
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "data_validator.columns.model.ColumnMeta",
+    "data_validator.tables.model.TableMeta",
+]
+
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]

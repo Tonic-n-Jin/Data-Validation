@@ -36,9 +36,7 @@ def composite_fk(name: str, references: str | None = None) -> ColumnMeta:
 
 
 def test_dimension_fact_and_junction_rules() -> None:
-    dimension = TableMeta(
-        name="dim_customer", table_type=TableType.DIMENSION, columns=(PK, LABEL)
-    )
+    dimension = TableMeta(name="dim_customer", table_type=TableType.DIMENSION, columns=(PK, LABEL))
     fact = TableMeta(name="fact_sales", table_type=TableType.FACT, columns=(FK, MEASURE))
     junction = TableMeta(
         name="jct_customer_region",

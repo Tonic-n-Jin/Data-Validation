@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from data_validator.columns.specs import COLUMN_TYPES
 from data_validator.tables.specs import TABLE_TYPES
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 TESTS_ROOT = Path(__file__).parent
 

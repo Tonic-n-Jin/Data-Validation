@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, create_model
@@ -10,6 +9,8 @@ from pydantic import BaseModel, create_model
 from data_validator._base import ROW_CONFIG
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from data_validator.columns.model import ColumnMeta
 
 

@@ -26,5 +26,6 @@ class TableDeclarationMeta(ModelMetaclass):
         inherited = tuple(
             column for base in bases for column in getattr(base, "__declared_columns__", ())
         )
-        cls.__declared_columns__ = inherited + declared
+        # TableMeta declares this ClassVar; mypy only sees the metaclass's `type` result.
+        cls.__declared_columns__ = inherited + declared  # type: ignore[attr-defined]
         return cls

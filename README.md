@@ -82,6 +82,7 @@ rules as direct schemas.
 from typing import ClassVar
 from data import ColumnMeta, ColumnType, SqlType, TableMeta, TableType
 
+
 class Customer(TableMeta):
     name: str = "dim_customer"
     table_type: TableType = TableType.DIMENSION
@@ -93,6 +94,7 @@ class Customer(TableMeta):
     name_text: ClassVar[ColumnMeta] = ColumnMeta(
         name="name_text", sql_type=SqlType.NVARCHAR, max_length=200
     )
+
 
 customer_schema = Customer()
 ```

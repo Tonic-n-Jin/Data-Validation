@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
 
 from data_validator.rows.report import FieldError, RowValidationError, ValidationReport
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
 
 LegacyResult = tuple[list[BaseModel], list[tuple[int, ValidationError]]]
 

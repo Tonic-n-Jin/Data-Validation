@@ -32,7 +32,12 @@ def active_list_rules(table: TableMeta) -> list[str]:
     if len(table.columns) != 2 or len(table.pk) != 1 or table.pk[0].name != expected_pk:
         return [f"must be exactly ({expected_pk} PK, {ACTIVE_FLAG})"]
     flag = next((column for column in table.columns if column.name == ACTIVE_FLAG), None)
-    if flag is None or flag.sql_type is not SqlType.BIT or flag.nullable or flag.default is not True:
+    if (
+        flag is None
+        or flag.sql_type is not SqlType.BIT
+        or flag.nullable
+        or flag.default is not True
+    ):
         return [f"{ACTIVE_FLAG} must be BIT NOT NULL DEFAULT True"]
     return []
 

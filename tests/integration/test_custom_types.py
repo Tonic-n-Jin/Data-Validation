@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import pytest
 from pydantic import ValidationError
@@ -18,6 +17,9 @@ from data_validator import (
     register_table_type,
     unregister_table_type,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def snapshot_rules(table: TableMeta) -> Sequence[str]:

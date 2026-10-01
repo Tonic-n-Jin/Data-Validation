@@ -42,6 +42,6 @@ def test_column_names_must_be_identifiers(name: str) -> None:
 def test_column_meta_is_frozen_and_rejects_unknown_fields() -> None:
     column = ColumnMeta(name="col", sql_type=SqlType.INT)
     with pytest.raises(ValidationError):
-        column.nullable = False  # type: ignore[misc]
+        column.nullable = False
     with pytest.raises(ValidationError):
-        ColumnMeta(name="col", sql_type=SqlType.INT, unknown=True)  # type: ignore[call-arg]
+        ColumnMeta(name="col", sql_type=SqlType.INT, unknown=True)

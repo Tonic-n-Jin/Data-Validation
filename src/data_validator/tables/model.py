@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic import BaseModel, ValidationError, model_validator
 
@@ -12,10 +12,12 @@ from data_validator.columns.model import ColumnMeta
 from data_validator.registry import UnknownTypeError
 from data_validator.rows.engine import build_report, validate_records
 from data_validator.rows.factory import build_row_model
-from data_validator.rows.report import ValidationReport
 from data_validator.tables import builtins as _builtins  # noqa: F401  (registers built-ins)
 from data_validator.tables.declaration import TableDeclarationMeta
 from data_validator.tables.specs import TABLE_TYPES, TableTypeKey, get_table_type_spec
+
+if TYPE_CHECKING:
+    from data_validator.rows.report import ValidationReport
 
 
 class TableMeta(BaseModel, metaclass=TableDeclarationMeta):
