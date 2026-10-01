@@ -1,11 +1,17 @@
 """Strict, declarative data warehouse schema and runtime row validation."""
 
+# Pylance suppressions:
+# Pydantic models are frozen, but Pyright still treats narrowed Literal field
+# overrides as mutable/invariant.
+# pyright: reportIncompatibleVariableOverride=false
+
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from functools import cached_property
+from operator import gt
 from typing import Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import (
@@ -20,7 +26,6 @@ from pydantic import (
     model_validator,
 )
 from pydantic._internal._model_construction import ModelMetaclass
-
 
 MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=False)
 ROW_CONFIG = ConfigDict(
@@ -207,12 +212,15 @@ class ColumnMeta(BaseModel):
             self.sql_type.is_numeric or self.sql_type.is_temporal
         ):
             raise ValueError("min_value and max_value require numeric or temporal types")
-        if (
-            self.min_value is not None
-            and self.max_value is not None
-            and self.min_value > self.max_value
-        ):
-            raise ValueError("min_value cannot exceed max_value")
+        if self.min_value is not None and self.max_value is not None:
+            try:
+                bounds_are_reversed = gt(self.min_value, self.max_value)
+            except TypeError as error:
+                raise ValueError(
+                    "min_value and max_value must be mutually comparable"
+                ) from error
+            if bounds_are_reversed:
+                raise ValueError("min_value cannot exceed max_value")
         violation = self.column_type.violation(self)
         if violation:
             raise ValueError(f"{self.column_type.value} column '{self.name}' {violation}")
@@ -240,7 +248,7 @@ class ColumnMeta(BaseModel):
             metadata.append(Field(ge=self.min_value, le=self.max_value))
         if self.allowed_values is not None:
             metadata.append(AfterValidator(_allowed_values_validator(self.allowed_values)))
-        annotation = Annotated[base, *metadata] if metadata else base
+        annotation: Any = Annotated[base, *metadata] if metadata else base
         return annotation | None if self.nullable else annotation
 
     def field_info(self) -> Any:
@@ -285,8 +293,13 @@ def _parse_decimal(value: Any) -> Any:
 
 def _decimal_precision_validator(precision: int, scale: int):
     def validate(value: Decimal) -> Decimal:
+        if not value.is_finite():
+            raise ValueError("must be a finite decimal value")
         digits = value.as_tuple().digits
-        decimals = max(-value.as_tuple().exponent, 0)
+        exponent = value.as_tuple().exponent
+        if not isinstance(exponent, int):
+            raise ValueError("must be a finite decimal value")
+        decimals = max(-exponent, 0)
         integer_digits = len(digits) - decimals
         if decimals > scale or integer_digits + decimals > precision:
             raise ValueError(
@@ -483,13 +496,14 @@ class TableMeta(BaseModel, metaclass=TableDeclarationMeta):
 
     @cached_property
     def row_model(self) -> type[BaseModel]:
+        field_definitions: dict[str, Any] = {
+            column.name: (column.annotation(), column.field_info())
+            for column in self.columns
+        }
         return create_model(
             f"{''.join(part.title() for part in self.name.split('_'))}Row",
             __config__=ROW_CONFIG,
-            **{
-                column.name: (column.annotation(), column.field_info())
-                for column in self.columns
-            },
+            **field_definitions,
         )
 
     def validate_rows(self, records: list[dict[str, Any]]) -> ValidationReport:
