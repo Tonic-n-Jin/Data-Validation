@@ -7,7 +7,13 @@ from typing import Annotated
 from pydantic import ConfigDict, StringConstraints
 
 MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=False)
-ROW_CONFIG = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=False, strict=True)
+ROW_CONFIG = ConfigDict(
+    frozen=True,
+    extra="forbid",
+    arbitrary_types_allowed=False,
+    strict=True,
+    validate_default=True,
+)
 Ident = Annotated[
     str,
     StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$", max_length=128),
