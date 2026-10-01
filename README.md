@@ -1,54 +1,106 @@
 # Data Validation
 
-A project about validating structured data with [Pydantic](https://docs.pydantic.dev/).
+An immutable, Pydantic v2 data warehouse schema framework. `data.py` is the
+canonical public module; `data_validation.py` remains a compatibility re-export.
 
-## Purpose
+## Core API
 
-Data validation checks that incoming values have the expected structure and satisfy
-the rules declared by an application. Pydantic models provide a class-based way to
-describe that structure: fields define the data shape and constraints, and
-validation produces either a typed model instance or validation errors.
+- `SqlType` maps SQL types to Python types and exposes numeric, string, temporal,
+  and boolean family predicates.
+- `ColumnMeta` describes physical columns, including PII metadata, references,
+  precision/scale, string patterns, allowed values, and numeric or temporal
+  ranges.
+- `ColumnType` enforces key, identity, foreign-key, composite-key, and
+  system-date behavior.
+- `TableMeta` applies table-family naming and structure rules, builds a strict
+  runtime Pydantic row model, and validates datasets.
 
-## Repository status
+All framework models are frozen and reject unknown schema fields. Generated row
+models reject unknown record fields.
 
-The repository currently contains this README only. It has no application source,
-project-specific classes, declared dependencies, or tests yet. As a result, there
-is not an implemented API or concrete class hierarchy to document. The diagram
-below describes the general Pydantic validation flow this project name suggests;
-it is conceptual, not a map of existing repository code.
+## Direct schemas
 
-## Conceptual validation flow
+```python
+from decimal import Decimal
 
-```mermaid
-flowchart LR
-    Input["Incoming data<br/>(for example, a dict)"] --> Model["Pydantic model<br/>(subclass of BaseModel)"]
-    Fields["Field definitions<br/>(types and constraints)"] --> Model
-    Validators["Validation rules<br/>(field/model validators)"] --> Model
-    Model -->|valid| Instance["Typed model instance"]
-    Model -->|invalid| Errors["ValidationError"]
+from data import ColumnMeta, ColumnType, SqlType, TableMeta, TableType
+
+sales = TableMeta(
+    name="fact_sales",
+    table_type=TableType.FACT,
+    columns=(
+        ColumnMeta(
+            name="customer_id",
+            sql_type=SqlType.INT,
+            column_type=ColumnType.FOREIGN_KEY,
+            references="dim_customer.customer_id",
+        ),
+        ColumnMeta(
+            name="amount",
+            sql_type=SqlType.DECIMAL,
+            nullable=False,
+            precision=12,
+            scale=2,
+            min_value=Decimal("0.00"),
+        ),
+    ),
+)
+report = sales.validate_rows(
+    [{"customer_id": 1, "amount": "12.50"}, {"customer_id": 2, "amount": "-1"}]
+)
+assert report.valid_count == 1
+assert report.invalid_rows[0].row_index == 1
 ```
 
-### Concepts and relationships
+`validate_rows()` returns a frozen `ValidationReport` with `valid_rows` and
+field-level `invalid_rows`. Use `validate_rows_legacy()` only when the prior
+`(valid_rows, [(row_index, ValidationError)])` result is required.
 
-- **Model class** — describes one validated data shape and, in a Pydantic
-  application, typically subclasses `pydantic.BaseModel`.
-- **Fields** — belong to a model and specify the expected values, types, and
-  constraints for its attributes.
-- **Validators** — add checks for values or relationships between fields. Their
-  exact form depends on the Pydantic version and the rules being implemented.
-- **Validation result** — accepted input becomes a model instance; rejected input
-  yields validation errors that callers can inspect or report.
+## Table rules and scaffolding
 
-These are Pydantic concepts, not classes currently defined in this repository.
+`TableType` enforces these prefixes: Active List (`al_`), Lookup (`lu_`),
+Dimension (`dim_`), Fact (`fact_`), Junction (`jct_`), and Staging (`stg_`).
+An Active List created without columns is scaffolded as its derived-name primary
+key plus `is_active BIT NOT NULL DEFAULT True`.
 
-## Finding and understanding project classes
+```python
+active_regions = TableMeta(name="al_region", table_type=TableType.ACTIVE_LIST)
+assert [column.name for column in active_regions.columns] == ["region", "is_active"]
+```
 
-When implementation is added, document each public class alongside its source
-file. For each class, explain its responsibility, important fields and validation
-rules, what creates or consumes it, and how it relates to other project classes.
-Keep the class relationship diagram grounded in the actual imports, inheritance,
-and data flow; distinguish external Pydantic classes from project-defined ones.
+Facts require a foreign key and a non-key numeric measure. Junctions require a
+composite primary key made of foreign-key columns. Lookups and dimensions require
+one primary key and at least one non-key attribute.
 
-For concrete behavior, the implementation and tests should be treated as the
-authoritative references. This README can then link to those files and describe
-the supported public API, setup, and examples.
+## Class declarations
+
+Use `ClassVar[ColumnMeta]` declarations to define reusable table schema classes.
+They are collected by the table metaclass and use exactly the same validation
+rules as direct schemas.
+
+```python
+from typing import ClassVar
+from data import ColumnMeta, ColumnType, SqlType, TableMeta, TableType
+
+class Customer(TableMeta):
+    name: str = "dim_customer"
+    table_type: TableType = TableType.DIMENSION
+    customer_id: ClassVar[ColumnMeta] = ColumnMeta(
+        name="customer_id",
+        sql_type=SqlType.INT,
+        column_type=ColumnType.PRIMARY_KEY,
+    )
+    name_text: ClassVar[ColumnMeta] = ColumnMeta(
+        name="name_text", sql_type=SqlType.NVARCHAR, max_length=200
+    )
+
+customer_schema = Customer()
+```
+
+## Verification
+
+Run the standard-library test suite with:
+
+```bash
+python3 -m unittest discover -s tests -v
+```

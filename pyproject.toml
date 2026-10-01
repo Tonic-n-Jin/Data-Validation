@@ -9,4 +9,4 @@ requires-python = ">=3.11"
 dependencies = ["pydantic>=2.13"]
 
 [tool.setuptools]
-py-modules = ["data_validation"]
+py-modules = ["data", "data_validation"]
