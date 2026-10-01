@@ -139,12 +139,6 @@ class ColumnMetaTests(unittest.TestCase):
 
 
 class TableMetaTests(unittest.TestCase):
-    def test_compatibility_import_and_json_catalog(self) -> None:
-        self.assertIs(CompatibilityColumnMeta, ColumnMeta)
-        tables = TypeAdapter(list[TableMeta]).validate_json(
-            b'[{"name":"al_region","table_type":"active_list"}]'
-        )
-        self.assertEqual(tables[0].table_type, TableType.ACTIVE_LIST)
 
     def test_active_list_is_scaffolded_and_defaulted(self) -> None:
         table = TableMeta(name="al_region", table_type=TableType.ACTIVE_LIST)

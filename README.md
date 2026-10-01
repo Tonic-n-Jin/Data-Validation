@@ -1,7 +1,7 @@
 # Data Validation
 
 An immutable, Pydantic v2 data warehouse schema framework. `data.py` is the
-canonical public module; `data_validation.py` remains a compatibility re-export.
+canonical public module.
 
 ## Core API
 
