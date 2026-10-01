@@ -16,7 +16,6 @@ from data import (
     TableType,
     ValidationReport,
 )
-from data_validation import ColumnMeta as CompatibilityColumnMeta
 
 
 class SqlTypeTests(unittest.TestCase):
