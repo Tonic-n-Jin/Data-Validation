@@ -7,11 +7,12 @@ from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel, Field, ValidationError, create_model, model_validator
 
-from data_validator._base import ACTIVE_FLAG, MODEL_CONFIG, ROW_CONFIG, Ident
+from data_validator._base import MODEL_CONFIG, ROW_CONFIG, Ident
 from data_validator.columns.model import ColumnMeta
+from data_validator.registry import UnknownTypeError
+from data_validator.tables import builtins as _builtins  # noqa: F401  (registers built-ins)
 from data_validator.tables.declaration import TableDeclarationMeta
-from data_validator.types.sql import SqlType
-from data_validator.types.table_type import TableType
+from data_validator.tables.specs import TABLE_TYPES, TableTypeKey, get_table_type_spec
 
 
 class FieldError(BaseModel):
@@ -50,7 +51,7 @@ class TableMeta(BaseModel, metaclass=TableDeclarationMeta):
     model_config = MODEL_CONFIG
 
     name: Ident
-    table_type: TableType
+    table_type: TableTypeKey
     columns: tuple[ColumnMeta, ...] = ()
     __declared_columns__: ClassVar[tuple[ColumnMeta, ...]] = ()
 
@@ -62,63 +63,33 @@ class TableMeta(BaseModel, metaclass=TableDeclarationMeta):
         data = dict(data)
         if not data.get("columns") and cls.__declared_columns__:
             data["columns"] = cls.__declared_columns__
-        if not data.get("columns"):
-            try:
-                table_type = TableType(data.get("table_type"))
-            except ValueError:
-                return data
-            table_name = data.get("name")
-            if isinstance(table_name, str):
-                columns = table_type.scaffold(table_name)
-                if columns:
-                    data["columns"] = columns
+        table_type, table_name = data.get("table_type"), data.get("name")
+        if (
+            not data.get("columns")
+            and isinstance(table_type, str)
+            and table_type in TABLE_TYPES
+            and isinstance(table_name, str)
+        ):
+            scaffold = get_table_type_spec(table_type).scaffold
+            if scaffold is not None:
+                data["columns"] = scaffold(table_name)
         return data
 
     @model_validator(mode="after")
     def _apply_table_type_rules(self) -> Self:
+        try:
+            spec = get_table_type_spec(self.table_type)
+        except UnknownTypeError as error:
+            raise ValueError(str(error)) from error
         errors: list[str] = []
-        if not self.name.startswith(self.table_type.prefix):
-            errors.append(f"name must start with '{self.table_type.prefix}'")
+        if not self.name.startswith(spec.prefix):
+            errors.append(f"name must start with '{spec.prefix}'")
         if len({column.name for column in self.columns}) != len(self.columns):
             errors.append("duplicate column names")
-        errors.extend(self._type_rule_errors())
+        errors.extend(spec.rules(self))
         if errors:
             raise ValueError(f"{self.name}: " + "; ".join(errors))
         return self
-
-    def _type_rule_errors(self) -> list[str]:
-        if self.table_type is TableType.ACTIVE_LIST:
-            expected_pk = self.table_type.strip_prefix(self.name)
-            if len(self.columns) != 2 or len(self.pk) != 1 or self.pk[0].name != expected_pk:
-                return [f"must be exactly ({expected_pk} PK, {ACTIVE_FLAG})"]
-            flag = next((column for column in self.columns if column.name == ACTIVE_FLAG), None)
-            if (
-                flag is None
-                or flag.sql_type is not SqlType.BIT
-                or flag.nullable
-                or flag.default is not True
-            ):
-                return [f"{ACTIVE_FLAG} must be BIT NOT NULL DEFAULT True"]
-        if self.table_type in {TableType.LOOKUP, TableType.DIMENSION}:
-            if len(self.pk) != 1:
-                return [f"needs exactly 1 PK, has {len(self.pk)}"]
-            if all(column.primary_key for column in self.columns):
-                return ["needs a non-key column"]
-        if self.table_type is TableType.FACT:
-            errors = []
-            if not any(column.references for column in self.columns):
-                errors.append("needs an FK column")
-            if not any(
-                column.sql_type.is_numeric and not (column.primary_key or column.references)
-                for column in self.columns
-            ):
-                errors.append("needs a numeric measure")
-            return errors
-        if self.table_type is TableType.JUNCTION and (
-            len(self.pk) < 2 or not all(column.references for column in self.pk)
-        ):
-            return ["PK must be 2+ FK columns"]
-        return []
 
     @property
     def pk(self) -> tuple[ColumnMeta, ...]:

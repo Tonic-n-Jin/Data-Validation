@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from data_validator._base import MODEL_CONFIG, Ident, Reference
 from data_validator.columns.annotations import build_annotation, build_field_info
+from data_validator.columns.specs import COLUMN_TYPES, ColumnTypeKey, get_column_type_spec
+from data_validator.registry import UnknownTypeError
 from data_validator.types.column_type import ColumnType
 from data_validator.types.sql import SqlType
 
@@ -26,7 +28,7 @@ class ColumnMeta(BaseModel):
 
     name: Ident
     sql_type: SqlType
-    column_type: ColumnType = ColumnType.MISCELLANEOUS
+    column_type: ColumnTypeKey = ColumnType.MISCELLANEOUS
     nullable: bool = True
     primary_key: bool = False
     indexed: bool = False
@@ -50,16 +52,15 @@ class ColumnMeta(BaseModel):
         if not isinstance(data, dict):
             return data
         raw_type = data.get("column_type", cls.model_fields["column_type"].default)
-        try:
-            return ColumnType(raw_type).defaults(data)
-        except ValueError:
-            return data
+        if isinstance(raw_type, str) and raw_type in COLUMN_TYPES:
+            return get_column_type_spec(raw_type).apply_defaults(data)
+        return data
 
     @model_validator(mode="after")
     def _validate_metadata(self) -> Self:
         if self.primary_key and self.nullable:
             raise ValueError(f"PK '{self.name}' cannot be nullable")
-        if self.references and not (self.column_type is ColumnType.FOREIGN_KEY or self.primary_key):
+        if self.references and not (self.column_type == ColumnType.FOREIGN_KEY or self.primary_key):
             raise ValueError(f"Column '{self.name}' has references; use FOREIGN_KEY or a key type")
         if self.max_length is not None and not self.sql_type.is_string:
             raise ValueError("max_length is only valid for string SQL types")
@@ -84,9 +85,13 @@ class ColumnMeta(BaseModel):
                 raise ValueError("min_value and max_value must be mutually comparable") from error
             if bounds_are_reversed:
                 raise ValueError("min_value cannot exceed max_value")
-        violation = self.column_type.violation(self)
+        try:
+            spec = get_column_type_spec(self.column_type)
+        except UnknownTypeError as error:
+            raise ValueError(str(error)) from error
+        violation = spec.check(self)
         if violation:
-            raise ValueError(f"{self.column_type.value} column '{self.name}' {violation}")
+            raise ValueError(f"{self.column_type} column '{self.name}' {violation}")
         return self
 
     def annotation(self) -> Any:
