@@ -4,33 +4,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-Requires Python >= 3.11 and `pydantic>=2.13`. Tests use the standard-library `unittest` (no pytest config).
+Requires Python >= 3.11 and `pydantic>=2.7` (the suite is verified on 2.7.4 and 2.13.x). System pip is externally managed, so work in the project venv:
 
 ```bash
-python3 -m unittest discover -s tests -v                                   # full suite
-python3 -m unittest tests.test_data.TableMetaTests -v                      # one class
-python3 -m unittest tests.test_data.TableMetaTests.test_dimension_fact_and_junction_rules -v  # one test
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+.venv/bin/pytest                                              # full suite
+.venv/bin/pytest tests/unit   # or -m unit / -m integration (markers are applied by directory in conftest.py)
+.venv/bin/pytest tests/unit/test_table_rules.py::test_table_rule_violations   # one test
+.venv/bin/ruff check . && .venv/bin/ruff format --check .
+.venv/bin/mypy                                                # strict, with the pydantic plugin, over src and tests
 ```
 
-No linter or formatter is configured. `data.py` carries a file-level `# pyright: reportIncompatibleVariableOverride=false` for the `Literal` overrides on the typed column subclasses.
+`ruff format` also formats the Python blocks in `README.md`.
 
 ## Architecture
 
-The entire library is the single module `data.py` (the only public module; the old `data_validation` re-export was removed). It is a declarative data-warehouse schema framework built on Pydantic v2, layered as:
+`src/data_validator/` is a declarative data-warehouse schema framework built on Pydantic v2. Its layers import strictly downward, and `tests/unit/test_layering.py` enforces this with an explicit `LAYERS` map. Every new module must be added to that map. Imports under `if TYPE_CHECKING:` are exempt, which is how specs type-hint `ColumnMeta`/`TableMeta` without cycles.
 
-1. **`SqlType`** — SQL type enum mapped to Python types via `_PYTHON_TYPES`, with family predicates (`is_numeric`, `is_string`, `is_temporal`, `supports_precision_scale`) that the other layers use to decide which metadata is legal.
-2. **`ColumnType`** — owns key semantics in two places: `defaults()` is applied in `ColumnMeta`'s *before* validator (e.g. PK/composite key → `primary_key`, `nullable=False`, `indexed`; system date → `auto_utc`), and `violation()` is checked in the *after* validator. Add new column-kind behavior here, not in `ColumnMeta`.
-3. **`ColumnMeta`** — schema metadata plus cross-field checks in `_validate_metadata`. It also compiles itself into runtime validation: `annotation()` builds an `Annotated[...]` type (string constraints, decimal parsing + precision/scale, bounds, allowed values; `| None` if nullable) and `field_info()` picks the default (`auto_utc` factory, explicit default, `None`, or required). `PrimaryKeyColumn`, `ForeignKeyColumn`, etc. are thin subclasses pinning `column_type` to a `Literal`.
-4. **`TableType`** — owns per-family naming prefixes (`al_`, `lu_`, `dim_`, `fact_`, `jct_`, `stg_`) and `scaffold()`, which auto-generates Active List columns (`<name-without-prefix>` NVARCHAR PK + `is_active BIT NOT NULL DEFAULT True`) when none are given.
-5. **`TableMeta`** — uses the custom metaclass `TableDeclarationMeta` (subclass of Pydantic's `ModelMetaclass`) to collect `ClassVar[ColumnMeta]` attributes into `__declared_columns__`, including inherited ones. Its *before* validator fills `columns` from declared columns, else from `TableType.scaffold()`. Its *after* validator enforces prefix, unique column names, and table-family structure rules in `_type_rule_errors()`. Direct construction and class declaration must go through identical rules.
-6. **Row validation** — `TableMeta.row_model` (a `cached_property`) builds a Pydantic model via `create_model` from each column's `annotation()`/`field_info()`, using `ROW_CONFIG` (`strict=True`, `extra="forbid"`, frozen). `validate_rows()` returns a frozen `ValidationReport` of valid rows and per-row `RowValidationError`/`FieldError`; `validate_rows_legacy()` returns the old `(valid_rows, [(index, ValidationError)])` tuple shape. Both share `_validate_rows()`.
+1. **Layer 0 — keys and plumbing.**
+   - `_base.py` holds `MODEL_CONFIG`, `ROW_CONFIG`, `Ident`, `Reference` and `ACTIVE_FLAG`.
+   - `registry.py` holds the generic `Registry` and `UnknownTypeError`.
+   - `types/` holds the `SqlType`, `ColumnType` and `TableType` StrEnums. `ColumnType`/`TableType` are only keys plus prefix data; they carry no behavior.
+2. **Layer 1 — `columns/`.**
+   - `specs.py` holds `ColumnTypeSpec` (`defaults` applied with `setdefault`, plus a `check` that returns a violation message) and the `COLUMN_TYPES` registry. The built-in specs are registered at import time.
+   - `model.py` holds `ColumnMeta`. Its *before* validator applies the spec's defaults and its *after* validator runs the cross-field checks, then `spec.check`.
+   - `annotations.py` compiles a column into an `Annotated[...]` type and a `FieldInfo`, using the validator factories in `constraints.py`.
+3. **Layer 2 — `rows/`.**
+   - `factory.build_row_model` wraps `create_model` with `ROW_CONFIG` (strict, frozen, `extra="forbid"`).
+   - `engine.validate_records` returns the legacy `(valid, [(index, ValidationError)])` shape, and `build_report` turns it into the frozen `ValidationReport`.
+4. **Layer 3 — `tables/`.**
+   - `specs.py` holds `TableTypeSpec` (prefix, `rules`, optional `scaffold`) and the `TABLE_TYPES` registry.
+   - `builtins.py` holds the built-in family rules and Active List scaffolding, and registers them on import. `tables/model.py` imports it for that side effect.
+   - `declaration.py` holds `TableDeclarationMeta`, which subclasses Pydantic's private `ModelMetaclass` and collects `ClassVar[ColumnMeta]` attributes, including inherited ones.
+   - `model.py` holds `TableMeta`, whose validators and row methods delegate to the spec and to `rows/`.
+5. **`__init__.py`** contains re-exports only. New public names go into its `__all__`.
 
-Conventions that span the module:
-- All framework models use `MODEL_CONFIG` (frozen, `extra="forbid"`); collections are tuples/frozensets, not lists.
-- Because rows are validated with `strict=True`, values are not coerced (e.g. `"1"` is rejected for INT). DECIMAL/NUMERIC is the exception: `_parse_decimal` runs as a `BeforeValidator` so strings are accepted.
-- New public names must be added to `__all__`.
+**Cross-cutting behavior:**
+- **Type keys.** `table_type`/`column_type` are `TableTypeKey`/`ColumnTypeKey`, which are `str` fields validated against the registries. Built-in keys are normalized back to their enum members, so keep `is TableType.X` working. Both model validators also look up the spec directly, because class declarations may re-annotate `table_type` as plain `TableType` or `str`.
+- **Registries are global.** The autouse fixture in `tests/conftest.py` snapshots and restores them around every test.
+- **Strict rows.** Values are not coerced (`"1"` is rejected for INT). DECIMAL/NUMERIC is the exception: `parse_decimal` runs as a `BeforeValidator`.
+- **Ruff and Pydantic.** Ruff's `TC` rules are configured with `runtime-evaluated-base-classes` so that imports used by Pydantic field annotations stay at runtime. Don't move those imports under `TYPE_CHECKING` by hand.
 
 ## Repository notes
 
-- `.github/agents/review-and-commit.agent.md` defines the review/commit-message convention: report findings first (severity, file:line, failing scenario, impact), skip pure style nits, don't modify files or commit unless asked, and write a short imperative commit subject (≤ ~50 chars) that reflects the actual diff. Conventional-commit prefixes are not used in this repo's history.
-- Development happens on `develop`; PRs target `main`.
+- `.github/agents/review-and-commit.agent.md` defines the review and commit-message convention:
+  - report findings first, giving severity, file:line, the failing scenario and the impact;
+  - skip pure style nits;
+  - don't modify files or commit unless asked;
+  - write a short imperative commit subject (about 50 characters or fewer) that reflects the actual diff.
+  
+  Conventional-commit prefixes are not used in this repo's history.
+- Development happens on `develop`, and PRs target `main`.
