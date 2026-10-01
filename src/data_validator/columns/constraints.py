@@ -28,8 +28,8 @@ def decimal_precision_validator(precision: int, scale: int) -> Callable[[Decimal
         if not isinstance(exponent, int):
             raise ValueError("must be a finite decimal value")
         decimals = max(-exponent, 0)
-        integer_digits = len(digits) - decimals
-        if decimals > scale or integer_digits + decimals > precision:
+        integer_digits = 0 if value.is_zero() else max(len(digits) + exponent, 0)
+        if decimals > scale or integer_digits > precision - scale:
             raise ValueError(f"must fit DECIMAL({precision}, {scale}); received {value}")
         return value
 
