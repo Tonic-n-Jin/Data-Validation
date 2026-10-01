@@ -9,12 +9,21 @@ from data_validator.columns.model import (
     PrimaryKeyColumn,
     SystemDateColumn,
 )
+from data_validator.columns.specs import (
+    ColumnTypeSpec,
+    get_column_type_spec,
+    register_column_type,
+    unregister_column_type,
+)
+from data_validator.registry import UnknownTypeError
+from data_validator.rows.report import FieldError, RowValidationError, ValidationReport
 from data_validator.tables.declaration import TableDeclarationMeta
-from data_validator.tables.model import (
-    FieldError,
-    RowValidationError,
-    TableMeta,
-    ValidationReport,
+from data_validator.tables.model import TableMeta
+from data_validator.tables.specs import (
+    TableTypeSpec,
+    get_table_type_spec,
+    register_table_type,
+    unregister_table_type,
 )
 from data_validator.types.column_type import ColumnType
 from data_validator.types.sql import SqlType
@@ -26,6 +35,7 @@ __all__ = [
     "ACTIVE_FLAG",
     "ColumnMeta",
     "ColumnType",
+    "ColumnTypeSpec",
     "CompositeKeyColumn",
     "FieldError",
     "ForeignKeyColumn",
@@ -39,6 +49,14 @@ __all__ = [
     "TableDeclarationMeta",
     "TableMeta",
     "TableType",
+    "TableTypeSpec",
+    "UnknownTypeError",
     "ValidationReport",
     "__version__",
+    "get_column_type_spec",
+    "get_table_type_spec",
+    "register_column_type",
+    "register_table_type",
+    "unregister_column_type",
+    "unregister_table_type",
 ]

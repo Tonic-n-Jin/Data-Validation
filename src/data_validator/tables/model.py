@@ -5,44 +5,17 @@ from __future__ import annotations
 from functools import cached_property
 from typing import Any, ClassVar, Self
 
-from pydantic import BaseModel, Field, ValidationError, create_model, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 
-from data_validator._base import MODEL_CONFIG, ROW_CONFIG, Ident
+from data_validator._base import MODEL_CONFIG, Ident
 from data_validator.columns.model import ColumnMeta
 from data_validator.registry import UnknownTypeError
+from data_validator.rows.engine import build_report, validate_records
+from data_validator.rows.factory import build_row_model
+from data_validator.rows.report import ValidationReport
 from data_validator.tables import builtins as _builtins  # noqa: F401  (registers built-ins)
 from data_validator.tables.declaration import TableDeclarationMeta
 from data_validator.tables.specs import TABLE_TYPES, TableTypeKey, get_table_type_spec
-
-
-class FieldError(BaseModel):
-    model_config = MODEL_CONFIG
-
-    field: tuple[str | int, ...]
-    message: str
-    error_type: str
-
-
-class RowValidationError(BaseModel):
-    model_config = MODEL_CONFIG
-
-    row_index: int = Field(ge=0)
-    errors: tuple[FieldError, ...]
-
-
-class ValidationReport(BaseModel):
-    model_config = MODEL_CONFIG
-
-    valid_rows: tuple[BaseModel, ...]
-    invalid_rows: tuple[RowValidationError, ...]
-
-    @property
-    def valid_count(self) -> int:
-        return len(self.valid_rows)
-
-    @property
-    def invalid_count(self) -> int:
-        return len(self.invalid_rows)
 
 
 class TableMeta(BaseModel, metaclass=TableDeclarationMeta):
@@ -97,49 +70,13 @@ class TableMeta(BaseModel, metaclass=TableDeclarationMeta):
 
     @cached_property
     def row_model(self) -> type[BaseModel]:
-        field_definitions: dict[str, Any] = {
-            column.name: (column.annotation(), column.field_info()) for column in self.columns
-        }
-        return create_model(
-            f"{''.join(part.title() for part in self.name.split('_'))}Row",
-            __config__=ROW_CONFIG,
-            **field_definitions,
-        )
+        return build_row_model(self.name, self.columns)
 
     def validate_rows(self, records: list[dict[str, Any]]) -> ValidationReport:
-        valid_rows, invalid_rows = self._validate_rows(records)
-        return ValidationReport(
-            valid_rows=tuple(valid_rows),
-            invalid_rows=tuple(
-                RowValidationError(
-                    row_index=index,
-                    errors=tuple(
-                        FieldError(
-                            field=tuple(error["loc"]),
-                            message=error["msg"],
-                            error_type=error["type"],
-                        )
-                        for error in validation_error.errors()
-                    ),
-                )
-                for index, validation_error in invalid_rows
-            ),
-        )
+        return build_report(*validate_records(self.row_model, records))
 
     def validate_rows_legacy(
         self, records: list[dict[str, Any]]
     ) -> tuple[list[BaseModel], list[tuple[int, ValidationError]]]:
         """Return the pre-structured-report validation result shape."""
-        return self._validate_rows(records)
-
-    def _validate_rows(
-        self, records: list[dict[str, Any]]
-    ) -> tuple[list[BaseModel], list[tuple[int, ValidationError]]]:
-        valid_rows: list[BaseModel] = []
-        invalid_rows: list[tuple[int, ValidationError]] = []
-        for row_index, record in enumerate(records):
-            try:
-                valid_rows.append(self.row_model.model_validate(record))
-            except ValidationError as error:
-                invalid_rows.append((row_index, error))
-        return valid_rows, invalid_rows
+        return validate_records(self.row_model, records)
