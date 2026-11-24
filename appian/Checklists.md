@@ -6,7 +6,7 @@ Nov 24, 2026 · @Kyle Jovanovic
 
 Build one stateless service that handles both directions using Word content controls, and let Appian own every Oracle read and write.
 
-&#91;embedded content: architecture · 3 components, 2 flows\]
+![alt text](image.png)
 
 Button 1 runs along the upper arrows and button 2 along the lower ones. Nothing reaches Oracle until the user confirms the diff.
 
