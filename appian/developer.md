@@ -1,6 +1,20 @@
-# Appian Oracle ↔ DOCX Service — Requirements & Developer Checklists
+# Appian Oracle ↔ DOCX Service
 
-Nov 24, 2026 · @Kyle Jovanovic
+_Developer Guide_
+
+- [Appian Oracle ↔ DOCX Service](#appian-oracle--docx-service)
+  - [Architecture](#architecture)
+  - [Developer checklist](#developer-checklist)
+    - [Language / framework](#language--framework)
+    - [Template engineering](#template-engineering)
+    - [Mapping config](#mapping-config)
+    - [Service endpoints](#service-endpoints)
+    - [Appian side](#appian-side)
+    - [Security](#security)
+    - [Testing](#testing)
+    - [CI/CD \& ops](#cicd--ops)
+  - [Open questions](#open-questions)
+  - [Sources](#sources)
 
 ## Architecture
 
@@ -16,75 +30,17 @@ Button 1 runs along the upper arrows and button 2 along the lower ones. Nothing 
 - **Recommendation:** one service owns both directions. Each content control's Tag holds the field key, so the same tag marks a field on the way out and on the way back in.
 - **Appian keeps the database:** Appian passes record JSON to the service and gets a .docx back. On upload, the service returns JSON and Appian writes it through its records or data store. The service needs no Oracle credentials, and Appian's record security and audit trail stay intact.
 
-## Requirements documentation checklist
-
-The field mapping table is the core artifact. Most other requirements depend on it.
-
-### Scope & actors
-
-- [ ] Which record or entity types the buttons appear on
-- [ ] Roles or groups that can generate vs. upload (these may differ)
-- [ ] Business trigger and frequency (ad hoc, workflow step, bulk)
-- [ ] What happens between download and upload: who edits, offline or not, how long the doc is held
-
-### Template
-
-- [ ] Template owner and change approver
-- [ ] Versioning: can several versions be live at once, and are uploads of older versions accepted?
-- [ ] Locked regions vs. editable regions
-- [ ] Output format: .docx only, or a PDF copy as well
-- [ ] Naming convention for generated files
-
-### Field mapping (one row per field)
-
-- [ ] Field key (the content control Tag)
-- [ ] Oracle schema.table.column, data type, length or precision, nullability
-- [ ] Direction: out only, in only, or both
-- [ ] Display format (dates, currency, codes shown as their descriptions)
-- [ ] Reverse parse rule (text back to type, description back to code)
-- [ ] Repeating sections or tables (child rows), and how inserts, updates and deletes are detected
-- [ ] Lookup and reference data validation
-- [ ] Business validation rules (ranges, cross-field rules)
-
-### Upload behavior
-
-- [ ] What a blank field means: set to NULL, or no change?
-- [ ] Partial vs. full update
-- [ ] Concurrency: what happens if the record changed after the doc was generated? (Reject, warn, or merge)
-- [ ] Diff or preview shown to the user before commit (strongly recommended)
-- [ ] Approval step before the write
-- [ ] Error reporting: per-field messages and where they appear
-- [ ] Handling of a doc uploaded against the wrong record
-
-### Security & compliance
-
-- [ ] Data classification of the fields (PII, regulated or GxP data)
-- [ ] Retention of generated and uploaded docs in Appian Document Management
-- [ ] Audit: who, when, old value → new value
-- [ ] File restrictions: .docx only, reject .docm and macros, size limit, malware scan
-- [ ] Doc protection or encryption requirements
-
-### Non-functional
-
-- [ ] Volume, peak concurrency, latency target for each button
-- [ ] Availability and support model (who gets paged)
-- [ ] Appian version, hosting (self-managed vs. cloud), network path to the service
-
-### Acceptance
-
-- [ ] Golden test docs: a clean round trip, every field edited, invalid values, wrong template version, stale record, tampered tags
-
 ## Developer checklist
 
 The default is Java with docx4j. Choose by what your enterprise already hosts and supports.
 
 ### Language / framework
 
-| Option | Fit for this problem | Watch-outs |
-| --- | --- | --- |
-| Java 17/21 + docx4j | Best fit for an Appian shop: Appian plugins are Java, and docx4j has first-class content control and custom XML data binding. Ships as an Appian plugin or a Spring Boot REST service. | Heavier library; plugin deploys depend on the Appian admins |
-| .NET 8 + Open XML SDK | Most complete content control support | Only if you're a Microsoft-hosted shop |
-| Python + FastAPI + python-docx + lxml | Workable; matches the team's Python skills | python-docx has no content control API, so you work on the raw XML with lxml. Avoid docxtpl: its tags are consumed on render, like `###` keys. |
+| Option                                | Fit for this problem                                                                                                                                                                   | Watch-outs                                                                                                                                     |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Java 17/21 + docx4j                   | Best fit for an Appian shop: Appian plugins are Java, and docx4j has first-class content control and custom XML data binding. Ships as an Appian plugin or a Spring Boot REST service. | Heavier library; plugin deploys depend on the Appian admins                                                                                    |
+| .NET 8 + Open XML SDK                 | Most complete content control support                                                                                                                                                  | Only if you're a Microsoft-hosted shop                                                                                                         |
+| Python + FastAPI + python-docx + lxml | Workable; matches the team's Python skills                                                                                                                                             | python-docx has no content control API, so you work on the raw XML with lxml. Avoid docxtpl: its tags are consumed on render, like `###` keys. |
 
 - [ ] Pick the language and record the decision as an ADR
 - [ ] Pick the hosting: Appian plugin (no extra infrastructure, but tied to Appian admin deploys and more fragile on upgrades) vs. a standalone REST service via Connected System + Integration (independent CI/CD; needs hosting, auth, a network route). Lean REST unless infra blocks it.
